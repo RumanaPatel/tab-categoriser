@@ -56,12 +56,13 @@ export default function DashboardPage() {
     );
   }
 
-  function dismissCluster(index: number) {
-    setClusterStates(prev => ({ ...prev, [index]: "collapsed" }));
-    // Check if all done
-    const newStates = { ...clusterStates, [index]: "collapsed" as const };
+  function toggleCluster(index: number) {
+    const current = clusterStates[index] || "active";
+    const next = current === "active" ? "collapsed" : "active";
+    const newStates = { ...clusterStates, [index]: next };
+    setClusterStates(newStates);
     const allCollapsed = data!.clusters.every((_, i) => newStates[i] === "collapsed");
-    if (allCollapsed) setAllDone(true);
+    setAllDone(allCollapsed);
   }
 
   function acceptAll() {
@@ -149,12 +150,17 @@ export default function DashboardPage() {
                   : "border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
               }`}
             >
-              <div className="flex items-center justify-between p-4">
+              <div
+                className={`flex items-center justify-between p-4 ${state === "collapsed" ? "cursor-pointer" : ""}`}
+                onClick={state === "collapsed" ? () => toggleCluster(ci) : undefined}
+              >
                 <div>
                   <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">
                     {cluster.name}
                   </h2>
-                  <span className="text-xs text-zinc-500">{cluster.urls.length} tabs</span>
+                  <span className="text-xs text-zinc-500">
+                    {cluster.urls.length} tabs{state === "collapsed" ? " · click to expand" : ""}
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   {state === "active" && (
@@ -166,7 +172,7 @@ export default function DashboardPage() {
                         Copy links
                       </button>
                       <button
-                        onClick={() => dismissCluster(ci)}
+                        onClick={() => toggleCluster(ci)}
                         className="px-2 py-1 text-xs rounded bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
                       >
                         Done

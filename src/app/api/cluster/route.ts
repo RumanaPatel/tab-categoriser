@@ -110,26 +110,38 @@ export async function POST(request: NextRequest) {
       }
 
       // Map indices back to full URLs with inferred titles
+      const assignedIndices = new Set<number>();
       const clusters = indexClusters.map((c: { name: string; indices: number[] }) => ({
         name: c.name,
         urls: (c.indices || [])
           .filter((idx: number) => idx >= 1 && idx <= kept.length)
           .map((idx: number) => {
+            assignedIndices.add(idx);
             const tab = kept[idx - 1];
-            // Infer a short title from URL
             const title = inferTitle(tab.url);
             return { url: tab.url, title };
           }),
       }));
 
+      // Catch any URLs the model dropped — silent loss is not acceptable
+      const uncategorised = kept
+        .map((tab, i) => ({ tab, idx: i + 1 }))
+        .filter(({ idx }) => !assignedIndices.has(idx))
+        .map(({ tab }) => ({ url: tab.url, title: inferTitle(tab.url) }));
+
+      if (uncategorised.length > 0) {
+        clusters.push({ name: "Uncategorised", urls: uncategorised });
+      }
+
       const id = generateId();
+      const clusteredCount = clusters.reduce((sum, c) => sum + c.urls.length, 0);
 
       return NextResponse.json({
         id,
         createdAt: new Date().toISOString(),
         stats: {
           total: parsed.length,
-          kept: kept.length,
+          kept: clusteredCount,
           filtered: filtered.length,
         },
         clusters,

@@ -96,7 +96,7 @@ export default function Home() {
         </div>
 
         <p className="text-center text-xs text-zinc-400">
-          Your URLs are sent to Claude for clustering. Nothing is stored beyond your dashboard.
+          Your URLs are sent to Claude for clustering, then saved to your browser. Nothing leaves your device except the API call.
         </p>
       </main>
     </div>
