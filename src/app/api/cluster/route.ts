@@ -4,7 +4,6 @@ import { parseUrls } from "@/lib/parse-urls";
 import { filterJunk } from "@/lib/junk-filter";
 import crypto from "crypto";
 
-// Allow up to 120 seconds for the Claude API call
 export const maxDuration = 120;
 
 const MAX_TABS = 500;
@@ -15,24 +14,22 @@ function generateId(): string {
 
 const anthropic = new Anthropic();
 
-const SYSTEM_PROMPT = `You are a tab organizer. Given a list of browser tab URLs, group them into 3-8 meaningful clusters based on topic, purpose, or theme. Use URL structure (domains, path segments, query params) to infer what each tab is about.
+const SYSTEM_PROMPT = `You are a tab organizer. Given a list of numbered browser tab URLs, group them into 3-8 meaningful clusters based on topic, purpose, or theme. Use URL structure (domains, path segments, query params) to infer what each tab is about.
 
 Return valid JSON matching this exact schema:
 {
   "clusters": [
     {
-      "name": "Short descriptive name for this cluster",
-      "urls": [
-        { "url": "the original url", "title": "a short inferred title based on the URL" }
-      ]
+      "name": "Short descriptive name",
+      "indices": [1, 5, 12]
     }
   ]
 }
 
 Rules:
-- Every input URL must appear in exactly one cluster
+- Use the line NUMBERS from the input to reference tabs (1-indexed)
+- Every input number must appear in exactly one cluster
 - Cluster names should be descriptive and human-friendly (e.g. "Bathroom Renovation Research", "Data Engineering Reading List", "Shopping")
-- Infer short titles from URL structure (domain, path, query params). For example: "amazon.com/dp/B08..." -> "Amazon Product", "medium.com/@user/building-data-pipelines" -> "Building Data Pipelines"
 - 3-8 clusters total. Merge small groups. Don't create clusters with only 1 item unless it's truly unique.
 - Return ONLY the JSON object, no markdown fences, no explanation.`;
 
@@ -45,7 +42,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No input provided" }, { status: 400 });
     }
 
-    // Parse and filter
     const parsed = parseUrls(rawInput);
     if (parsed.length === 0) {
       return NextResponse.json({ error: "No valid URLs found in your input" }, { status: 400 });
@@ -67,17 +63,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Truncate long URLs to reduce token count — keep domain + first 120 chars
+    // Send numbered URLs, truncated to reduce input tokens
     const urlList = kept.map((tab, i) => {
       const truncated = tab.url.length > 150 ? tab.url.slice(0, 150) + "..." : tab.url;
       return `${i + 1}. ${truncated}`;
     }).join("\n");
 
-    // Call Claude API (single attempt, no retry to avoid doubling timeout)
     try {
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 8192,
+        max_tokens: 2048,
         messages: [
           {
             role: "user",
@@ -92,30 +87,41 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "No response from Claude" }, { status: 500 });
       }
 
-      // Parse the JSON response, stripping markdown fences if present
       let jsonStr = textBlock.text.trim();
       if (jsonStr.startsWith("```")) {
         jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
       }
 
-      const result = JSON.parse(jsonStr);
-      const clusters = result.clusters;
+      let indexClusters;
+      try {
+        const result = JSON.parse(jsonStr);
+        indexClusters = result.clusters;
+      } catch (parseErr) {
+        console.error("JSON parse failed. Raw response:", textBlock.text);
+        return NextResponse.json(
+          { error: "Clustering returned unparseable response. Please try again." },
+          { status: 500 }
+        );
+      }
 
-      if (!Array.isArray(clusters) || clusters.length === 0) {
+      if (!Array.isArray(indexClusters) || indexClusters.length === 0) {
+        console.error("Invalid cluster format. Raw response:", textBlock.text);
         return NextResponse.json({ error: "Clustering returned invalid format" }, { status: 500 });
       }
 
-      // Restore full URLs in clusters (replace truncated versions with originals)
-      for (const cluster of clusters) {
-        for (const item of cluster.urls) {
-          const match = kept.find(k => item.url.startsWith(k.url.slice(0, 100)) || k.url.startsWith(item.url.slice(0, 100)));
-          if (match) {
-            item.url = match.url;
-          }
-        }
-      }
+      // Map indices back to full URLs with inferred titles
+      const clusters = indexClusters.map((c: { name: string; indices: number[] }) => ({
+        name: c.name,
+        urls: (c.indices || [])
+          .filter((idx: number) => idx >= 1 && idx <= kept.length)
+          .map((idx: number) => {
+            const tab = kept[idx - 1];
+            // Infer a short title from URL
+            const title = inferTitle(tab.url);
+            return { url: tab.url, title };
+          }),
+      }));
 
-      // Generate shareable ID
       const id = generateId();
 
       return NextResponse.json({
@@ -131,11 +137,8 @@ export async function POST(request: NextRequest) {
       });
     } catch (err) {
       console.error("Clustering failed:", err instanceof Error ? err.message : err);
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return NextResponse.json(
-        { error: `Clustering failed: ${message}` },
-        { status: 500 }
-      );
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return NextResponse.json({ error: `Clustering failed: ${msg}` }, { status: 500 });
     }
   } catch (err) {
     console.error("Unexpected error:", err);
@@ -143,5 +146,35 @@ export async function POST(request: NextRequest) {
       { error: "Something went wrong. Please try again." },
       { status: 500 }
     );
+  }
+}
+
+function inferTitle(url: string): string {
+  try {
+    const u = new URL(url);
+    const domain = u.hostname.replace(/^www\./, "");
+
+    // Google searches: extract query
+    if (domain.startsWith("google.") && u.pathname.includes("/search")) {
+      const q = u.searchParams.get("q");
+      if (q) return `Search: ${q.replace(/\+/g, " ")}`;
+    }
+
+    // Use path segments for a readable title
+    const path = u.pathname
+      .split("/")
+      .filter(Boolean)
+      .map(seg => seg.replace(/[-_]/g, " "))
+      .join(" / ");
+
+    if (path) {
+      // Capitalize first letter
+      const title = path.charAt(0).toUpperCase() + path.slice(1);
+      return title.length > 60 ? title.slice(0, 57) + "..." : title;
+    }
+
+    return domain;
+  } catch {
+    return url;
   }
 }
