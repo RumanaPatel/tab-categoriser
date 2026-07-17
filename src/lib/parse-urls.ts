@@ -19,7 +19,9 @@ function normalizeUrl(raw: string): string | null {
       url.searchParams.delete(param);
     }
 
-    // Remove trailing slash on path-only URLs
+    // Remove trailing slashes for consistent dedup
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+
     if (url.pathname === "/") {
       return `${url.origin}${url.search}${url.hash}`;
     }
