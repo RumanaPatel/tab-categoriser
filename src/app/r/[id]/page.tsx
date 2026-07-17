@@ -89,6 +89,17 @@ export default function DashboardPage() {
     navigator.clipboard.writeText(text);
   }
 
+  const OPEN_ALL_WARN_THRESHOLD = 15;
+
+  function openAll(cluster: Cluster) {
+    if (cluster.urls.length > OPEN_ALL_WARN_THRESHOLD) {
+      if (!confirm(`Open ${cluster.urls.length} tabs at once?`)) return;
+    }
+    for (const tab of cluster.urls) {
+      window.open(tab.url, "_blank", "noopener,noreferrer");
+    }
+  }
+
   function exportJson() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -166,6 +177,12 @@ export default function DashboardPage() {
                   {state === "active" && (
                     <>
                       <button
+                        onClick={() => openAll(cluster)}
+                        className="px-2 py-1 text-xs rounded border border-zinc-300 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                      >
+                        Open all
+                      </button>
+                      <button
                         onClick={() => copyClusterLinks(cluster)}
                         className="px-2 py-1 text-xs rounded border border-zinc-300 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                       >
@@ -204,7 +221,7 @@ export default function DashboardPage() {
                       </a>
                       <button
                         onClick={() => removeTab(ci, ti)}
-                        className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 text-xs transition-opacity"
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-400 hover:text-red-500 text-xs p-1 transition-opacity"
                         title="Remove"
                       >
                         &times;
