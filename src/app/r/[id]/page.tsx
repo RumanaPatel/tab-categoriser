@@ -151,21 +151,14 @@ export default function DashboardPage() {
     if (cluster.urls.length > OPEN_ALL_WARN_THRESHOLD) {
       if (!confirm(`Open ${cluster.urls.length} tabs at once?`)) return;
     }
-    // Browsers block multiple window.open() calls (popup blocker).
-    // Instead, open a helper page with all links that the user can click or
-    // use the browser's built-in "open all" if they select all.
-    const html = `<!DOCTYPE html><html><head><title>${cluster.name}</title>
-      <style>body{font-family:system-ui;max-width:600px;margin:2rem auto;padding:0 1rem}
-      a{display:block;padding:8px 0;color:#2563eb;text-decoration:none;word-break:break-all;border-bottom:1px solid #eee}
-      a:hover{text-decoration:underline}h1{font-size:1.25rem;color:#333}p{color:#888;font-size:0.875rem}</style></head>
-      <body><h1>${cluster.name}</h1>
-      <p>${cluster.urls.length} links. Click any to open, or Ctrl/Cmd+click to open in background. Close this tab when done.</p>
-      ${cluster.urls.map(t => `<a href="${t.url.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${t.title || t.url}</a>`).join("")}
-      </body></html>`;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    let blocked = false;
+    for (const tab of cluster.urls) {
+      const w = window.open(tab.url, "_blank", "noopener,noreferrer");
+      if (!w) { blocked = true; break; }
+    }
+    if (blocked) {
+      alert("Your browser blocked popups. Allow popups for this site and try again.");
+    }
   }
 
   function exportJson() {
