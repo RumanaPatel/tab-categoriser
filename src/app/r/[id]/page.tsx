@@ -58,7 +58,7 @@ export default function DashboardPage() {
 
   function toggleCluster(index: number) {
     const current = clusterStates[index] || "active";
-    const next = current === "active" ? "collapsed" : "active";
+    const next: ClusterState = current === "active" ? "collapsed" : "active";
     const newStates = { ...clusterStates, [index]: next };
     setClusterStates(newStates);
     const allCollapsed = data!.clusters.every((_, i) => newStates[i] === "collapsed");
