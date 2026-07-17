@@ -4,6 +4,9 @@ import { parseUrls } from "@/lib/parse-urls";
 import { filterJunk } from "@/lib/junk-filter";
 import crypto from "crypto";
 
+// Allow up to 120 seconds for the Claude API call
+export const maxDuration = 120;
+
 const MAX_TABS = 500;
 
 function generateId(): string {
@@ -64,76 +67,76 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build URL list for the LLM
-    const urlList = kept.map((tab, i) => `${i + 1}. ${tab.url}`).join("\n");
+    // Truncate long URLs to reduce token count — keep domain + first 120 chars
+    const urlList = kept.map((tab, i) => {
+      const truncated = tab.url.length > 150 ? tab.url.slice(0, 150) + "..." : tab.url;
+      return `${i + 1}. ${truncated}`;
+    }).join("\n");
 
-    // Call Claude API
-    let clusters;
-    let retries = 0;
-    while (retries < 2) {
-      try {
-        const message = await anthropic.messages.create({
-          model: "claude-sonnet-4-6",
-          max_tokens: 4096,
-          messages: [
-            {
-              role: "user",
-              content: `Here are ${kept.length} browser tab URLs to cluster:\n\n${urlList}`,
-            },
-          ],
-          system: SYSTEM_PROMPT,
-        });
+    // Call Claude API (single attempt, no retry to avoid doubling timeout)
+    try {
+      const message = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 8192,
+        messages: [
+          {
+            role: "user",
+            content: `Here are ${kept.length} browser tab URLs to cluster:\n\n${urlList}`,
+          },
+        ],
+        system: SYSTEM_PROMPT,
+      });
 
-        const textBlock = message.content.find(b => b.type === "text");
-        if (!textBlock || textBlock.type !== "text") throw new Error("No text response");
+      const textBlock = message.content.find(b => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        return NextResponse.json({ error: "No response from Claude" }, { status: 500 });
+      }
 
-        // Parse the JSON response, stripping markdown fences if present
-        let jsonStr = textBlock.text.trim();
-        if (jsonStr.startsWith("```")) {
-          jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-        }
+      // Parse the JSON response, stripping markdown fences if present
+      let jsonStr = textBlock.text.trim();
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+      }
 
-        const result = JSON.parse(jsonStr);
-        clusters = result.clusters;
+      const result = JSON.parse(jsonStr);
+      const clusters = result.clusters;
 
-        if (!Array.isArray(clusters) || clusters.length === 0) {
-          throw new Error("Invalid cluster format");
-        }
+      if (!Array.isArray(clusters) || clusters.length === 0) {
+        return NextResponse.json({ error: "Clustering returned invalid format" }, { status: 500 });
+      }
 
-        break; // success
-      } catch (err) {
-        retries++;
-        console.error(`Clustering attempt ${retries} failed:`, err instanceof Error ? err.message : err);
-        if (retries >= 2) {
-          const message = err instanceof Error ? err.message : "Unknown error";
-          return NextResponse.json(
-            { error: `Clustering failed: ${message}` },
-            { status: 500 }
-          );
+      // Restore full URLs in clusters (replace truncated versions with originals)
+      for (const cluster of clusters) {
+        for (const item of cluster.urls) {
+          const match = kept.find(k => item.url.startsWith(k.url.slice(0, 100)) || k.url.startsWith(item.url.slice(0, 100)));
+          if (match) {
+            item.url = match.url;
+          }
         }
       }
+
+      // Generate shareable ID
+      const id = generateId();
+
+      return NextResponse.json({
+        id,
+        createdAt: new Date().toISOString(),
+        stats: {
+          total: parsed.length,
+          kept: kept.length,
+          filtered: filtered.length,
+        },
+        clusters,
+        filtered,
+      });
+    } catch (err) {
+      console.error("Clustering failed:", err instanceof Error ? err.message : err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return NextResponse.json(
+        { error: `Clustering failed: ${message}` },
+        { status: 500 }
+      );
     }
-
-    // Generate shareable ID
-    const id = generateId();
-
-    // Build result
-    const result = {
-      id,
-      createdAt: new Date().toISOString(),
-      stats: {
-        total: parsed.length,
-        kept: kept.length,
-        filtered: filtered.length,
-      },
-      clusters,
-      filtered,
-    };
-
-    // TODO: Persist to Vercel KV / Upstash Redis
-    // For now, return the result directly (client stores in localStorage)
-
-    return NextResponse.json(result);
   } catch (err) {
     console.error("Unexpected error:", err);
     return NextResponse.json(
