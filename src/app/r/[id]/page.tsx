@@ -159,7 +159,7 @@ export default function DashboardPage() {
       a{display:block;padding:8px 0;color:#2563eb;text-decoration:none;word-break:break-all;border-bottom:1px solid #eee}
       a:hover{text-decoration:underline}h1{font-size:1.25rem;color:#333}p{color:#888;font-size:0.875rem}</style></head>
       <body><h1>${cluster.name}</h1>
-      <p>${cluster.urls.length} links. Right-click and "Open all" or click individually. You can close this tab when done.</p>
+      <p>${cluster.urls.length} links. Click any to open, or Ctrl/Cmd+click to open in background. Close this tab when done.</p>
       ${cluster.urls.map(t => `<a href="${t.url.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${t.title || t.url}</a>`).join("")}
       </body></html>`;
     const blob = new Blob([html], { type: "text/html" });
