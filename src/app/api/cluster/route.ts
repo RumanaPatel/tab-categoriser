@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { parseUrls } from "@/lib/parse-urls";
 import { filterJunk } from "@/lib/junk-filter";
-import { nanoid } from "nanoid";
+import crypto from "crypto";
 
 const MAX_TABS = 500;
+
+function generateId(): string {
+  return crypto.randomBytes(4).toString("hex");
+}
 
 const anthropic = new Anthropic();
 
@@ -99,10 +103,11 @@ export async function POST(request: NextRequest) {
         break; // success
       } catch (err) {
         retries++;
+        console.error(`Clustering attempt ${retries} failed:`, err instanceof Error ? err.message : err);
         if (retries >= 2) {
-          console.error("Clustering failed after retries:", err);
+          const message = err instanceof Error ? err.message : "Unknown error";
           return NextResponse.json(
-            { error: "Clustering failed. Please try again." },
+            { error: `Clustering failed: ${message}` },
             { status: 500 }
           );
         }
@@ -110,7 +115,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate shareable ID
-    const id = nanoid(8);
+    const id = generateId();
 
     // Build result
     const result = {
