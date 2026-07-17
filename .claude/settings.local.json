@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type first_task_scaffold_shown --skill \"greenfield\" --outcome shown 2>/dev/null || true\ntouch ~/.gstack/.activated 2>/dev/null || true)",
+      "WebSearch",
+      "Bash(which bun:*)",
+      "Bash(~/.claude/skills/gstack/bin/gstack-decision-log '{\"decision\":\"CEO review \\(HOLD_SCOPE\\): held scope, 4 outside voice changes accepted\",\"rationale\":\"Deploy early, slim W1 schema, privacy notice, export help. No scope expansion.\",\"scope\":\"branch\",\"source\":\"skill\",\"confidence\":8}' 2>/dev/null || true)",
+      "Bash(~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null || echo \"review-read unavailable\")",
+      "Bash(winget install:*)"
+    ]
+  }
+}
