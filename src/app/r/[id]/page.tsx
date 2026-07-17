@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 interface TabItem {
   url: string;
@@ -22,6 +22,18 @@ interface TabResult {
 }
 
 type ClusterState = "active" | "collapsed";
+type VisitedMap = Record<string, string>; // url -> ISO timestamp
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
 
 export default function DashboardPage() {
   const params = useParams();
@@ -32,7 +44,7 @@ export default function DashboardPage() {
   const [showFiltered, setShowFiltered] = useState(false);
   const [allDone, setAllDone] = useState(false);
   const [search, setSearch] = useState("");
-  const [visited, setVisited] = useState<Set<string>>(new Set());
+  const [visitedMap, setVisitedMap] = useState<VisitedMap>({});
   const [editingCluster, setEditingCluster] = useState<number | null>(null);
   const [moveTab, setMoveTab] = useState<{ ci: number; ti: number } | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +56,16 @@ export default function DashboardPage() {
     }
     const visitedStored = localStorage.getItem(`visited-${id}`);
     if (visitedStored) {
-      setVisited(new Set(JSON.parse(visitedStored)));
+      const parsed = JSON.parse(visitedStored);
+      // Migrate from old Set format (array of strings) to timestamp map
+      if (Array.isArray(parsed)) {
+        const migrated: VisitedMap = {};
+        for (const url of parsed) migrated[url] = new Date().toISOString();
+        setVisitedMap(migrated);
+        localStorage.setItem(`visited-${id}`, JSON.stringify(migrated));
+      } else {
+        setVisitedMap(parsed);
+      }
     }
   }, [id]);
 
@@ -54,6 +75,11 @@ export default function DashboardPage() {
       editInputRef.current.select();
     }
   }, [editingCluster]);
+
+  const persistVisited = useCallback((updated: VisitedMap) => {
+    setVisitedMap(updated);
+    localStorage.setItem(`visited-${id}`, JSON.stringify(updated));
+  }, [id]);
 
   if (!data) {
     return (
@@ -78,12 +104,8 @@ export default function DashboardPage() {
   }
 
   function markVisited(url: string) {
-    setVisited(prev => {
-      const next = new Set(prev);
-      next.add(url);
-      localStorage.setItem(`visited-${id}`, JSON.stringify([...next]));
-      return next;
-    });
+    const updated = { ...visitedMap, [url]: new Date().toISOString() };
+    persistVisited(updated);
   }
 
   function toggleCluster(index: number) {
@@ -151,13 +173,16 @@ export default function DashboardPage() {
     if (cluster.urls.length > OPEN_ALL_WARN_THRESHOLD) {
       if (!confirm(`Open ${cluster.urls.length} tabs at once?`)) return;
     }
-    let blocked = false;
+    // Create temporary anchor elements and click them — more reliable
+    // than window.open() loops with some browsers' popup blockers
     for (const tab of cluster.urls) {
-      const w = window.open(tab.url, "_blank", "noopener,noreferrer");
-      if (!w) { blocked = true; break; }
-    }
-    if (blocked) {
-      alert("Your browser blocked popups. Allow popups for this site and try again.");
+      const a = document.createElement("a");
+      a.href = tab.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
   }
 
@@ -178,6 +203,15 @@ export default function DashboardPage() {
     if (!hasSearch) return true;
     return tab.url.toLowerCase().includes(searchLower) ||
       tab.title.toLowerCase().includes(searchLower);
+  }
+
+  function sortedTabs(tabs: TabItem[]): TabItem[] {
+    return [...tabs].sort((a, b) => {
+      const aTime = visitedMap[a.url] ? new Date(visitedMap[a.url]).getTime() : 0;
+      const bTime = visitedMap[b.url] ? new Date(visitedMap[b.url]).getTime() : 0;
+      // Recently visited first, unvisited at the bottom
+      return bTime - aTime;
+    });
   }
 
   return (
@@ -231,11 +265,13 @@ export default function DashboardPage() {
         {/* Clusters */}
         {data.clusters.map((cluster, ci) => {
           const state = clusterStates[ci] || "active";
-          const filteredUrls = hasSearch
+          const displayUrls = hasSearch
             ? cluster.urls.filter(tabMatchesSearch)
             : cluster.urls;
+          const sorted = sortedTabs(displayUrls);
+          const visitedCount = cluster.urls.filter(t => visitedMap[t.url]).length;
 
-          if (hasSearch && filteredUrls.length === 0) return null;
+          if (hasSearch && displayUrls.length === 0) return null;
 
           return (
             <div
@@ -278,7 +314,8 @@ export default function DashboardPage() {
                   )}
                   <span className="text-xs text-zinc-500">
                     {cluster.urls.length} tabs
-                    {hasSearch && filteredUrls.length !== cluster.urls.length && ` (${filteredUrls.length} matching)`}
+                    {visitedCount > 0 && ` · ${visitedCount} visited`}
+                    {hasSearch && displayUrls.length !== cluster.urls.length && ` · ${displayUrls.length} matching`}
                     {state === "collapsed" ? " · click to expand" : ""}
                   </span>
                 </div>
@@ -310,9 +347,9 @@ export default function DashboardPage() {
 
               {state === "active" && (
                 <div className="border-t border-zinc-200 dark:border-zinc-800">
-                  {filteredUrls.map((tab, filteredIdx) => {
+                  {sorted.map((tab) => {
                     const ti = cluster.urls.indexOf(tab);
-                    const isVisited = visited.has(tab.url);
+                    const visitedAt = visitedMap[tab.url];
                     return (
                       <div
                         key={ti}
@@ -322,21 +359,23 @@ export default function DashboardPage() {
                           href={tab.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`flex-1 min-w-0 ${isVisited ? "opacity-50" : ""}`}
+                          className="flex-1 min-w-0"
                           onClick={() => markVisited(tab.url)}
                         >
-                          <div className="flex items-center gap-2">
-                            {isVisited && (
-                              <span className="text-green-500 text-xs shrink-0" title="Visited">&#10003;</span>
-                            )}
+                          <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
-                              <p className={`text-sm truncate ${isVisited ? "text-zinc-400 dark:text-zinc-500 line-through" : "text-zinc-800 dark:text-zinc-200"}`}>
+                              <p className={`text-sm truncate ${visitedAt ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-800 dark:text-zinc-200"}`}>
                                 {tab.title || tab.url}
                               </p>
                               {tab.title && (
                                 <p className="text-xs text-zinc-400 truncate">{tab.url}</p>
                               )}
                             </div>
+                            {visitedAt && (
+                              <span className="text-xs text-zinc-400 shrink-0">
+                                {timeAgo(visitedAt)}
+                              </span>
+                            )}
                           </div>
                         </a>
                         <div className="flex items-center gap-1 shrink-0">
