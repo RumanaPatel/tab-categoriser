@@ -1,14 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+interface PastSweep {
+  id: string;
+  createdAt: string;
+  stats: { total: number; kept: number; filtered: number };
+  clusterCount: number;
+}
 
 export default function Home() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [pastSweeps, setPastSweeps] = useState<PastSweep[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    const sweeps: PastSweep[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith("tabs-")) continue;
+      try {
+        const d = JSON.parse(localStorage.getItem(key)!);
+        sweeps.push({
+          id: d.id,
+          createdAt: d.createdAt,
+          stats: d.stats,
+          clusterCount: d.clusters?.length || 0,
+        });
+      } catch { /* skip corrupt entries */ }
+    }
+    sweeps.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setPastSweeps(sweeps);
+  }, []);
 
   async function handleSubmit() {
     if (!input.trim()) return;
@@ -94,6 +121,32 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {pastSweeps.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Past sweeps</h2>
+            {pastSweeps.map((sweep) => (
+              <button
+                key={sweep.id}
+                onClick={() => router.push(`/r/${sweep.id}`)}
+                className="w-full flex items-center justify-between rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <div>
+                  <p className="text-sm text-zinc-800 dark:text-zinc-200">
+                    {sweep.stats.kept} tabs &middot; {sweep.clusterCount} clusters
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {new Date(sweep.createdAt).toLocaleDateString(undefined, {
+                      day: "numeric", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+                <span className="text-xs text-zinc-400">&rarr;</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <p className="text-center text-xs text-zinc-400">
           Your URLs are sent to Claude for clustering, then saved to your browser. Nothing leaves your device except the API call.
