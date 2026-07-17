@@ -110,13 +110,18 @@ export default function Home() {
 
           {showHelp && (
             <div className="mt-3 text-left text-sm text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 rounded-lg p-4 space-y-2">
-              <p className="font-medium text-zinc-700 dark:text-zinc-300">Getting your tab URLs:</p>
+              <p className="font-medium text-zinc-700 dark:text-zinc-300">Mobile:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li><strong>Chrome Android:</strong> Open tab switcher &rarr; &quot;Select tabs&quot; (top right) &rarr; select all &rarr; Share &rarr; &quot;Copy to clipboard&quot;</li>
+                <li><strong>Safari iOS:</strong> Hold the tabs button &rarr; &quot;Copy Links&quot; copies all open tabs</li>
+                <li><strong>Firefox Android:</strong> Tab tray &rarr; menu (&#8942;) &rarr; &quot;Share all tabs&quot;</li>
+              </ul>
+              <p className="font-medium text-zinc-700 dark:text-zinc-300 mt-3">Desktop:</p>
               <ul className="list-disc list-inside space-y-1">
                 <li><strong>Chrome:</strong> Install the &quot;Copy All URLs&quot; extension, then click it to copy all tabs</li>
                 <li><strong>Firefox:</strong> Right-click any tab &rarr; &quot;Select All Tabs&quot; &rarr; right-click &rarr; &quot;Copy Tab URLs&quot;</li>
                 <li><strong>Safari:</strong> Use the &quot;Tab Links&quot; extension from the App Store</li>
                 <li><strong>Edge:</strong> Right-click any tab &rarr; &quot;Select All Tabs&quot; &rarr; right-click &rarr; &quot;Copy link to all tabs&quot;</li>
-                <li><strong>Any browser:</strong> Use a bookmarklet &mdash; search &quot;copy all tab URLs bookmarklet&quot;</li>
               </ul>
             </div>
           )}
